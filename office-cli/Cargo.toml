@@ -1,0 +1,23 @@
+[package]
+name = "office-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "word"
+path = "src/bin/word/main.rs"
+
+[[bin]]
+name = "powerpoint"
+path = "src/bin/powerpoint/main.rs"
+
+[[bin]]
+name = "outlook"
+path = "src/bin/outlook/main.rs"
+
+[[bin]]
+name = "excel"
+path = "src/bin/excel/main.rs"
+
+[dependencies]
+clap = "3.0"
