@@ -1,7 +1,8 @@
-use std::{any::Any, process::Command};
+use std::process::Command;
 use clap::{App, Arg, SubCommand};
 use regex::Regex;
 use simple_logger::SimpleLogger;
+use term_size;
 // use cow_utils::CowUtils;
 fn get_contact_handle(name: &str) -> Result<Option<String>, String> {
     let escaped_name = name.replace("\"", "\\\""); // Escaping double quotes for AppleScript
@@ -105,27 +106,123 @@ fn add_contact(name: &str, _number: &str) -> Result<(), String> {
         ))
     }
 }
+/* This Function will take in a double newline delimitted string of messages.
+   This function will reverse the order of the lines such that the first message
+   line is first and so on. Also, this function will right justify the lines that contain Me.
+   Right Justify is not enough, to ensure that the messages are readable, the function should
+   ensure that all message begin from the same horizontal position. If the message is too long
+   the function should wrap the message to the next line. The message should be wrapped  and begin 
+   at the same horizontal position as the first line of the message. The message should b
+   In addition, this function will replace the phone number with the contact name.
+   Also, this function should remove any Me or the contact name from the message 
+   if there are multiple lines with the same name.
+   The output will be a string with the new order and formatting.
+     */
+
+     
+     fn format_message_thread(msg_thread: &str, contact: &str) -> String {
+        let normalized_threads = msg_thread
+            .replace("|", ": ");
+    
+            // .replace("\r\r", "\n")
+            // .replace("\r\n", "\n")
+            // .replace("\r", "\n")
+        let re = Regex::new(r"\+\d{10,15}:").unwrap();
+        let prepped_thread = re.replace_all(&normalized_threads, format!("{}:", contact));
+    
+        let width = term_size::dimensions().map_or(80, |(w, _)| w);
+        let wrap_threshold = (width as f32 * 0.42) as usize; // 100% - 16% for empty space
+    
+        let mut formatted_message = String::new();
+    
+        // Collect lines into a vector
+        let mut lines: Vec<&str> = prepped_thread.split("\r").collect();
+        // Reverse the order of the lines
+        lines.reverse();
+    
+        for line in lines {
+            if line.starts_with("Me:") {
+                // Right justify "Me" messages
+                let mut current_line = String::new();
+                let mut current_line_length = 0;
+    
+                for word in line.split_whitespace() {
+                    if current_line_length + word.len() + 1 > wrap_threshold  {
+                        formatted_message.push_str(&format!("{:>width$}", current_line, width = width));
+                        current_line.clear();
+                        current_line_length = 0;
+                    }
+                    if !current_line.is_empty() {
+                        current_line.push(' ');
+                        current_line_length += 1;
+                    }
+                    current_line.push_str(word);
+                    current_line_length += word.len();
+                }
+                if !current_line.is_empty() {
+                    formatted_message.push_str(&format!("{:>width$}\n", current_line, width = width));
+                }
+            } else {
+                // Apply existing logic for other messages
+                let mut current_line_length = 0;
+                for word in line.split_whitespace() {
+                    if current_line_length + word.len() + 1 > wrap_threshold {
+                        formatted_message.push('\n');
+                        current_line_length = 0;
+                    }
+                    if current_line_length > 0 {
+                        formatted_message.push(' ');
+                        current_line_length += 1;
+                    }
+                    formatted_message.push_str(word);
+                    current_line_length += word.len();
+                }
+                formatted_message.push('\n');
+            }
+        }
+    
+        formatted_message.trim_end().to_string()
+    }
+/*     let normalized_threads = msg_thread
+                                                .replace("\r\r", "\n")
+                                                .replace("\r\n", "\n")
+                                                .replace("\r", "\n")
+                                                .replace("|", ": ");
+
+    let re = Regex::new(r"\+\d{10,15}\:").unwrap();
+    let prepped_thread = re.replace_all(&normalized_threads, contact.to_owned() + ":");
+    let mut formatted_thread = String::new();
+    let mut lines: Vec<&str> = prepped_thread.split("\n").collect();
+    lines.reverse();
+    for line in lines {
+        if line.contains("Me:") {
+            formatted_thread.push_str(&format!("{:>1$}\n", line, 80));
+        } else {
+            formatted_thread.push_str(&format!("{}\n", line));
+        }
+    }
+    return formatted_thread;
+
+}  */
 
 fn view_message_thread(contact: &str, size: &i32) -> Result<(), String> {
     match get_contact_handle(contact)? {
         Some(handle) => {
-        
             let output = Command::new("osascript")
-            .arg("scripts/view_messages.scpt")
-            .arg(handle)
-            .arg(size.to_string())
-            .output()
-            .map_err(|e| format!("Failed to execute command: {}", e))?;
-        
-            if output.status.success() {
-                println!("Raw stdout: {:?}", &output.stdout);
-        
-                let threads = String::from_utf8_lossy(&output.stdout);
-                let replacement_text = contact.to_string() + "| ";
+                .arg("scripts/view_messages.scpt")
+                .arg(handle)
+                .arg(size.to_string())
+                .output()
+                .map_err(|e| format!("Failed to execute command: {}", e))?;
 
-                let re = Regex::new(r"\+.*?\|").unwrap();
-                let result = re.replace_all(&threads, replacement_text);
-                println!("Threads: \n{}", result);
+            if output.status.success() {
+                // Debugging: Print raw stdout to understand its structure
+                // println!("Raw stdout: {:?}", String::from_utf8_lossy(&output.stdout));
+                let formatted_thread: String = format_message_thread(&String::from_utf8_lossy(&output.stdout), contact);
+
+                
+                
+                println!("Formatted Threads: \n\n{}", formatted_thread);
                 Ok(())
             } else {
                 Err(format!(
@@ -134,11 +231,9 @@ fn view_message_thread(contact: &str, size: &i32) -> Result<(), String> {
                     String::from_utf8_lossy(&output.stderr)
                 ))
             }
-
         },
-        None => Err(format!("Contact '{}' not found.", contact))
+        None => Err("Contact handle not found".to_string()),
     }
-
 }
 
 fn view_recent_message(contact: &str) -> Result<(), String> {
@@ -153,8 +248,16 @@ fn view_recent_message(contact: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to execute command: {}", e))?;
 
     if output.status.success() {
-        let messages = String::from_utf8_lossy(&output.stdout);
-        println!("Recent messages from {}: \n{}", contact, messages);
+
+
+
+        let messages = &String::from_utf8_lossy(&output.stdout);
+        let normalized_threads = messages
+            .replace("\r\r", "\n\n")
+            .replace("\r\n", "\n\n")
+            .replace("\r", "\n\n")
+            .replace("|", ": ");
+        println!("Recent message from {}: \n\n{}", contact, normalized_threads.to_string());
         Ok(())
     } else {
         Err(format!(
